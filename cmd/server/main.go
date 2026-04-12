@@ -42,7 +42,7 @@ func main() {
 	// ─── Setup HTTP Handlers ─────────────────────────────────────────
 	runHandler := handler.NewRunHandler(pool, sessionMgr)
 	wsHandler := handler.NewWSHandler(sessionMgr)
-	fileTreeHandler := handler.NewFileTreeHandler()
+
 
 	mux := http.NewServeMux()
 
@@ -52,8 +52,7 @@ func main() {
 	// GET /ws?session_id=xxx - Stream build output via WebSocket
 	mux.HandleFunc("/ws", wsHandler.Handle)
 
-	// GET /files?session_id=xxx&path=... - Lazy-load folder contents
-	mux.HandleFunc("/files", fileTreeHandler.Handle)
+
 
 	// GET /health - Health check endpoint
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {

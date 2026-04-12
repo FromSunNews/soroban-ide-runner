@@ -32,6 +32,7 @@ type Job struct {
 type FileTreeNode struct {
 	Name     string         `json:"name"`
 	Type     string         `json:"type"`               // "file" or "folder"
-	Lazy     bool           `json:"lazy,omitempty"`      // true for large dirs (node_modules, target)
+	Content  string         `json:"content,omitempty"`   // File content (for files)
+	Lazy     bool           `json:"lazy,omitempty"`      // true for large dirs
 	Children []FileTreeNode `json:"children,omitempty"`
 }

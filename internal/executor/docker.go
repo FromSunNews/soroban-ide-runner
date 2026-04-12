@@ -15,28 +15,7 @@ import (
 	"soroban-studio-backend/internal/session"
 )
 
-// lazyFolders are directories that should be marked as lazy (not expanded on scan).
-var lazyFolders = map[string]bool{
-	"node_modules": true,
-	"target":       true,
-	".git":         true,
-	"dist":         true,
-	"build":        true,
-	"vendor":       true,
-	"deps":         true,
-	"__pycache__":  true,
-	".venv":        true,
-	"venv":         true,
-	"env":          true,
-	".env":         true,
-	"cache":        true,
-	"tmp":          true,
-	"temp":         true,
-	".next":        true,
-	".nuxt":        true,
-	".output":      true,
-	"out":          true,
-}
+
 
 // Executor handles running `docker exec` commands inside the shared Soroban
 // runner container. It streams stdout/stderr in real-time via the session manager.
@@ -81,11 +60,13 @@ func (e *Executor) Execute(job model.Job) {
 	log.Printf("[executor] parsed args: %v", cmdArgs)
 
 	// Build the docker exec argument list:
-	// docker exec --workdir /app/workspaces/{session} {container} {cmd} {args...}
+	// docker exec --workdir /app/workspaces/{session} --env HOME=... {container} {cmd} {args...}
 	workDir := fmt.Sprintf("/app/workspaces/%s", job.SessionID)
+	homeEnv := fmt.Sprintf("HOME=%s", workDir)
 	dockerArgs := []string{
 		"exec",
 		"--workdir", workDir,
+		"--env", homeEnv,
 		e.containerName,
 	}
 	dockerArgs = append(dockerArgs, cmdArgs...)
@@ -154,113 +135,71 @@ func (e *Executor) Execute(job model.Job) {
 		})
 	}
 
-	// Scan workspace and send file tree update
-	e.sendFileTreeUpdate(job)
+	// NOTE: Workspace is NOT cleaned up here.
+	// It persists so the user can run more commands.
+
+	// POST-COMMAND HOOKS:
+	// If it was an 'init' command and it succeeded, send a file tree update
+	// MUST be sent before the 'done' signal to ensure frontend receives it
+	if strings.Contains(command, "contract init") && cmd.ProcessState != nil && cmd.ProcessState.Success() {
+		log.Printf("[executor] 'stellar contract init' detected, scanning workspace for session %s", job.SessionID)
+		tree, err := e.scanDirectory(workDir)
+		if err == nil {
+			treeJSON, _ := json.Marshal(tree)
+			e.sessionMgr.Send(job.SessionID, model.OutputMessage{
+				Type:    "fileTreeUpdate",
+				Content: string(treeJSON),
+			})
+		} else {
+			log.Printf("[executor] failed to scan workspace after init: %v", err)
+		}
+	}
 
 	// Signal that execution is complete
 	e.sessionMgr.Send(job.SessionID, model.OutputMessage{
 		Type:    "done",
 		Content: "",
 	})
-
-	// NOTE: Workspace is NOT cleaned up here.
-	// It persists so the user can run more commands or browse the file tree.
 }
 
-// sendFileTreeUpdate scans workspace directory and sends file tree via WebSocket.
-func (e *Executor) sendFileTreeUpdate(job model.Job) {
-	workspacePath := filepath.Join(e.workspaceDir, job.SessionID)
-	
-	// First scan with shallow=false to get all folders including target/debug
-	log.Printf("[executor] scanning workspace path: %s", workspacePath)
-	tree := ScanDirectory(workspacePath, false)
-	
-	// Debug: log what we found
-	for _, node := range tree {
-		if node.Type == "folder" {
-			log.Printf("[executor] found folder: %s (lazy: %v, children: %d)", node.Name, node.Lazy, len(node.Children))
-			for _, child := range node.Children {
-				if child.Type == "folder" {
-					log.Printf("[executor]   - subfolder: %s (lazy: %v)", child.Name, child.Lazy)
-				}
-			}
-		}
-	}
-
-	if len(tree) == 0 {
-		log.Printf("[executor] no files found in workspace %s", job.SessionID)
-		return
-	}
-
-	treeJSON, err := json.Marshal(tree)
-	if err != nil {
-		log.Printf("[executor] failed to marshal file tree: %v", err)
-		return
-	}
-
-	e.sessionMgr.Send(job.SessionID, model.OutputMessage{
-		Type:    "fileTreeUpdate",
-		Content: string(treeJSON),
-	})
-
-	log.Printf("[executor] sent fileTreeUpdate for session %s (%d entries)", job.SessionID, len(tree))
-}
-
-// ScanDirectory reads a directory and returns a shallow file tree.
-// If shallow is true, lazy folders (node_modules, target, etc.) are marked
-// as lazy and their children are NOT listed.
-func ScanDirectory(dirPath string, shallow bool) []model.FileTreeNode {
+// scanDirectory recursively walks a directory and returns a tree of FileTreeNodes.
+func (e *Executor) scanDirectory(dirPath string) ([]model.FileTreeNode, error) {
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
-		log.Printf("[executor] failed to read directory %s: %v", dirPath, err)
-		return nil
+		return nil, err
 	}
 
-	nodes := make([]model.FileTreeNode, 0, len(entries))
-
+	var nodes []model.FileTreeNode
 	for _, entry := range entries {
 		name := entry.Name()
-
-		// Skip hidden files/folders except .gitignore
-		if strings.HasPrefix(name, ".") && name != ".gitignore" {
+		// Skip hidden files, target, and git directories
+		if strings.HasPrefix(name, ".") || name == "target" || name == ".git" {
 			continue
 		}
 
+		fullPath := filepath.Join(dirPath, name)
 		node := model.FileTreeNode{
 			Name: name,
 		}
 
 		if entry.IsDir() {
 			node.Type = "folder"
-
-			// Always check if this is a lazy folder
-			if lazyFolders[name] {
-				node.Lazy = true
-				// For lazy folders, scan immediate children only if it's target folder
-				if name == "target" {
-					childPath := filepath.Join(dirPath, name)
-					node.Children = ScanDirectory(childPath, false) // Scan children for target
-				} else if shallow {
-					// For other lazy folders in shallow mode, don't scan children
-					node.Children = []model.FileTreeNode{}
-				} else {
-					// In deep scan mode, scan children but keep lazy flag
-					childPath := filepath.Join(dirPath, name)
-					node.Children = ScanDirectory(childPath, shallow)
-				}
-			} else {
-				// Non-lazy folders: scan normally
-				childPath := filepath.Join(dirPath, name)
-				node.Children = ScanDirectory(childPath, shallow)
+			children, err := e.scanDirectory(fullPath)
+			if err != nil {
+				return nil, err
 			}
+			node.Children = children
 		} else {
 			node.Type = "file"
+			// Read file content and store it in the node
+			content, err := os.ReadFile(fullPath)
+			if err == nil {
+				node.Content = string(content)
+			}
 		}
-
 		nodes = append(nodes, node)
 	}
-
-	return nodes
+	return nodes, nil
 }
 
 // sendError sends an error message followed by a done signal.

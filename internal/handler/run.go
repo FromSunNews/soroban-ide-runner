@@ -17,10 +17,10 @@ import (
 
 // allowedPrefixes defines which command prefixes are permitted.
 var allowedPrefixes = []string{
-	"stellar", "soroban",
-	"cargo", "rustc", "rustup",
-	"node", "npm", "npx",
-	"wasm-opt",
+	"stellar",
+	// "cargo", "rustc", "rustup",
+	// "node", "npm", "npx",
+	// "wasm-opt",
 }
 
 // dangerousPatterns contains shell metacharacters that indicate injection attempts.
@@ -128,10 +128,10 @@ func (h *RunHandler) getOrCreateSessionID(w http.ResponseWriter, r *http.Request
 		}
 		log.Printf("[handler] session directory not found, creating new session")
 	}
-	
+
 	// Create new persistent session ID (longer for uniqueness)
 	sessionID := uuid.New().String()
-	
+
 	// Set cookie for persistence (expires in 30 days)
 	http.SetCookie(w, &http.Cookie{
 		Name:     "workspace_session",
@@ -141,7 +141,7 @@ func (h *RunHandler) getOrCreateSessionID(w http.ResponseWriter, r *http.Request
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	})
-	
+
 	log.Printf("[handler] created new persistent session: %s", sessionID)
 	return sessionID
 }
@@ -194,11 +194,8 @@ func (h *RunHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[handler] received command: %q", command)
 
-	// Validate that files were provided
-	if len(req.Files) == 0 {
-		http.Error(w, `{"error":"no files provided"}`, http.StatusBadRequest)
-		return
-	}
+	// Files are optional if a command is provided (e.g. for 'stellar contract init')
+	// But we still create the workspace directory below.
 
 	// Get or create persistent session ID
 	// Try to get from cookie first, otherwise create a persistent one
@@ -206,22 +203,25 @@ func (h *RunHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 	// Create workspace directory structure and write files
 	workDir := filepath.Join(h.workspaceDir, sessionID)
-	
-	// Clear existing workspace if it exists (for fresh project creation)
-	if _, err := os.Stat(workDir); err == nil {
-		log.Printf("[handler] clearing existing workspace: %s", workDir)
-		if err := os.RemoveAll(workDir); err != nil {
-			log.Printf("[handler] failed to clear workspace %s: %v", workDir, err)
+
+	// Clear existing workspace if it exists, but preserve .config (identities)
+	if entries, err := os.ReadDir(workDir); err == nil {
+		log.Printf("[handler] selectively clearing workspace: %s", workDir)
+		for _, entry := range entries {
+			if entry.Name() == ".config" {
+				continue // Preserve identities and session config
+			}
+			os.RemoveAll(filepath.Join(workDir, entry.Name()))
 		}
 	}
-	
+
 	// Create workspace directory if it doesn't exist
 	if err := os.MkdirAll(workDir, 0755); err != nil {
 		log.Printf("[handler] failed to create workspace directory %s: %v", workDir, err)
 		http.Error(w, `{"error":"failed to create workspace"}`, http.StatusInternalServerError)
 		return
 	}
-	
+
 	// Write files (overwrite existing ones)
 	for filename, content := range req.Files {
 		filePath := filepath.Join(workDir, filename)
