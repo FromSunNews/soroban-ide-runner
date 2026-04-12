@@ -1,0 +1,53 @@
+# ─── Soroban Studio Backend ───────────────────────────────────────
+# Run with: docker compose up --build
+#
+# Architecture:
+#   backend         → Go API server (POST /run, WS /ws)
+#   soroban-runner  → Shared Rust container for compiling contracts
+#
+# The backend sends `docker exec` commands to soroban-runner
+# to compile user-submitted Soroban projects. Output is streamed
+# in real-time via WebSocket.
+
+services:
+  # ── Go Backend API ──────────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: soroban-backend
+    ports:
+      - "8080:8080"
+    volumes:
+      # Mount Docker socket so backend can run `docker exec`
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Shared workspace volume for project files
+      - workspace:/app/workspaces
+    environment:
+      - PORT=8080
+      - MAX_WORKERS=3
+      - RUNNER_CONTAINER=soroban-runner
+      - WORKSPACE_DIR=/app/workspaces
+    depends_on:
+      soroban-runner:
+        condition: service_started
+    restart: unless-stopped
+
+  # ── Soroban Compilation Runner ──────────────────────────────────
+  soroban-runner:
+    build:
+      context: ./docker/runner
+      dockerfile: Dockerfile
+    container_name: soroban-runner
+    volumes:
+      # Same shared workspace volume
+      - workspace:/app/workspaces
+    # Keep container alive to receive `docker exec` commands
+    command: ["tail", "-f", "/dev/null"]
+    restart: unless-stopped
+
+# Shared named volume for workspaces
+# Both backend and runner mount this, so files written by the backend
+# are immediately visible to the runner for compilation.
+volumes:
+  workspace:
