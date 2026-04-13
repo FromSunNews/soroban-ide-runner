@@ -115,24 +115,30 @@ func sanitizeCommand(command string) string {
 	return command
 }
 
-// getOrCreateSessionID retrieves existing session ID from cookie or creates a new persistent one
+// getOrCreateSessionID retrieves session ID from header, cookie, or creates a new one.
+// Priority: X-Session-ID header > cookie > new UUID.
 func (h *RunHandler) getOrCreateSessionID(w http.ResponseWriter, r *http.Request) string {
-	// Try to get existing session from cookie
+	// 1. Check X-Session-ID header (sent by frontend via localStorage)
+	//    This is the primary method for cross-origin deployments (e.g., Vercel + Railway)
+	if headerID := r.Header.Get("X-Session-ID"); headerID != "" {
+		log.Printf("[handler] using session from X-Session-ID header: %s", headerID)
+		return headerID
+	}
+
+	// 2. Fallback: try cookie (works for same-origin deployments)
 	cookie, err := r.Cookie("workspace_session")
 	if err == nil && cookie.Value != "" {
-		// Validate that the session directory exists
 		sessionPath := filepath.Join(h.workspaceDir, cookie.Value)
 		if _, err := os.Stat(sessionPath); err == nil {
-			log.Printf("[handler] using existing session: %s", cookie.Value)
+			log.Printf("[handler] using existing session from cookie: %s", cookie.Value)
 			return cookie.Value
 		}
 		log.Printf("[handler] session directory not found, creating new session")
 	}
 
-	// Create new persistent session ID (longer for uniqueness)
+	// 3. Last resort: generate a new UUID
 	sessionID := uuid.New().String()
 
-	// Set cookie for persistence (expires in 30 days)
 	http.SetCookie(w, &http.Cookie{
 		Name:     "workspace_session",
 		Value:    sessionID,

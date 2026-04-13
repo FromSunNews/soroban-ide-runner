@@ -28,6 +28,11 @@ services:
       - MAX_WORKERS=3
       - RUNNER_CONTAINER=soroban-runner
       - WORKSPACE_DIR=/app/workspaces
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 512M
     depends_on:
       soroban-runner:
         condition: service_started
@@ -44,6 +49,11 @@ services:
       - workspace:/app/workspaces
     # Keep container alive to receive `docker exec` commands
     command: ["tail", "-f", "/dev/null"]
+    deploy:
+      resources:
+        limits:
+          cpus: '1.50'
+          memory: 2G
     restart: unless-stopped
 
 # Shared named volume for workspaces
