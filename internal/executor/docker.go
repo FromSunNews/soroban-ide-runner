@@ -23,6 +23,7 @@ type Executor struct {
 	sessionMgr    *session.Manager
 	containerName string
 	workspaceDir  string
+	mu            sync.Mutex // Protects the fixed /app/project path
 }
 
 // New creates a new Executor with configuration from environment variables.
@@ -59,13 +60,27 @@ func (e *Executor) Execute(job model.Job) {
 	cmdArgs := strings.Fields(command)
 	log.Printf("[executor] parsed args: %v", cmdArgs)
 
-	// Build the docker exec argument list:
-	// docker exec --workdir /app/workspaces/{session} --env HOME=... {container} {cmd} {args...}
 	workDir := fmt.Sprintf("/app/workspaces/%s", job.SessionID)
-	homeEnv := fmt.Sprintf("HOME=%s", workDir)
+
+	// To achieve sub-second speeds across different sessions, we must use a CONSTANT path
+	// inside the runner (e.g., /app/project) because Cargo's incremental state is path-absolute.
+	// We create a symlink to the session's workspace, then run the command inside that symlink.
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	// 1. Point the fixed /app/project path to our session's workspace
+	linkCmd := exec.Command("docker", "exec", e.containerName, "ln", "-sfn", workDir, "/app/project")
+	if err := linkCmd.Run(); err != nil {
+		log.Printf("[executor] warning: failed to create session symlink: %v", err)
+	}
+
+	// 2. Build the docker exec argument list for the actual command
+	// We use /app/project as the workdir and HOME to ensure absolute paths are constant.
+	fixedProjectDir := "/app/project"
+	homeEnv := fmt.Sprintf("HOME=%s", fixedProjectDir)
 	dockerArgs := []string{
 		"exec",
-		"--workdir", workDir,
+		"--workdir", fixedProjectDir,
 		"--env", homeEnv,
 		e.containerName,
 	}

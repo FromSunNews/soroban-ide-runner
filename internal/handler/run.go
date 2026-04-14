@@ -17,10 +17,7 @@ import (
 
 // allowedPrefixes defines which command prefixes are permitted.
 var allowedPrefixes = []string{
-	"stellar",
-	// "cargo", "rustc", "rustup",
-	// "node", "npm", "npx",
-	// "wasm-opt",
+	"stellar", "soroban", "cargo",
 }
 
 // dangerousPatterns contains shell metacharacters that indicate injection attempts.

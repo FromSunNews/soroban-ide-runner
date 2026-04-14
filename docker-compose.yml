@@ -47,8 +47,14 @@ services:
     volumes:
       # Same shared workspace volume
       - workspace:/app/workspaces
+      # Global sccache volume
+      - sccache:/app/sccache
+      # Global cargo home volume
+      - cargo_home:/app/cargo
+      # Global shared target volume
+      - target_cache:/app/target
     # Keep container alive to receive `docker exec` commands
-    command: ["tail", "-f", "/dev/null"]
+    command: ["sh", "-c", "sccache --start-server && tail -f /dev/null"]
     deploy:
       resources:
         limits:
@@ -56,8 +62,9 @@ services:
           memory: 2G
     restart: unless-stopped
 
-# Shared named volume for workspaces
-# Both backend and runner mount this, so files written by the backend
-# are immediately visible to the runner for compilation.
+# Shared named volumes
 volumes:
   workspace:
+  sccache:
+  cargo_home:
+  target_cache:

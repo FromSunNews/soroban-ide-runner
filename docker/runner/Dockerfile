@@ -40,12 +40,35 @@ RUN ARCH=$(dpkg --print-architecture) && \
     chmod +x /usr/local/bin/stellar && \
     rm -rf /tmp/stellar-cli.tar.gz
 
-# Optional: verifikasi
-RUN stellar --version
+# ✅ Install sccache for global build caching
+RUN ARCH=$(dpkg --print-architecture) && \
+    if [ "$ARCH" = "amd64" ]; then \
+      SCCACHE_ARCH="x86_64-unknown-linux-musl"; \
+    elif [ "$ARCH" = "arm64" ]; then \
+      SCCACHE_ARCH="aarch64-unknown-linux-musl"; \
+    else \
+      echo "Unsupported architecture: $ARCH" && exit 1; \
+    fi && \
+    curl -fSL -o /tmp/sccache.tar.gz \
+      "https://github.com/mozilla/sccache/releases/download/v0.10.0/sccache-v0.10.0-${SCCACHE_ARCH}.tar.gz" && \
+    tar -xzf /tmp/sccache.tar.gz -C /tmp && \
+    mv /tmp/sccache-v0.10.0-${SCCACHE_ARCH}/sccache /usr/local/bin/sccache && \
+    chmod +x /usr/local/bin/sccache && \
+    rm -rf /tmp/sccache.tar.gz /tmp/sccache-v0.10.0-${SCCACHE_ARCH}
 
-# Workspace
-RUN mkdir -p /app/workspaces
+# Set sccache and cargo environment variables
+ENV RUSTC_WRAPPER=sccache
+ENV SCCACHE_DIR=/app/sccache
+ENV SCCACHE_BASE_DIR=/app/workspaces
+ENV CARGO_HOME=/app/cargo
+ENV CARGO_TARGET_DIR=/app/target
+ENV SCCACHE_IDLE_TIMEOUT=0
+ENV SCCACHE_SERVER_UDS=/tmp/sccache.socket
+
+# Workspace and Cache
+RUN mkdir -p /app/workspaces /app/sccache /app/cargo /app/target && \
+    chmod 777 /app/sccache /app/cargo /app/target
 WORKDIR /app/workspaces
 
-# Keep the container alive to receive `docker exec` commands
-CMD ["tail", "-f", "/dev/null"]
+# Start sccache server and keep container alive
+CMD ["sh", "-c", "sccache --start-server && tail -f /dev/null"]
