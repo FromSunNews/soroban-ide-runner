@@ -2,7 +2,6 @@ package handler
 
 import (
 	"bytes"
-	"encoding/json"
 	"io"
 	"log"
 	"net/http"
