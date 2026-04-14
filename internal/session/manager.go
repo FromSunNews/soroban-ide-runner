@@ -29,14 +29,16 @@ func NewManager() *Manager {
 	return &Manager{}
 }
 
-// Create initializes a new session with the given ID.
-// Must be called before any Send or AddConnection calls.
-func (m *Manager) Create(sessionID string) {
-	m.sessions.Store(sessionID, &Session{
+// GetOrCreate retrieves an existing session or creates a new one if it doesn't exist.
+// This is non-destructive: it won't overwrite existing connections or buffers.
+func (m *Manager) GetOrCreate(sessionID string) *Session {
+	actual, _ := m.sessions.LoadOrStore(sessionID, &Session{
 		conns:  make([]*websocket.Conn, 0),
 		buffer: make([]model.OutputMessage, 0),
 	})
-	log.Printf("[session] created: %s", sessionID)
+	s := actual.(*Session)
+	log.Printf("[session] retrieved/created: %s", sessionID)
+	return s
 }
 
 // AddConnection registers a WebSocket connection for a session.

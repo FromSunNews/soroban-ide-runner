@@ -277,9 +277,8 @@ func (h *RunHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[handler] workspace created: session=%s, files=%d, command=%q", sessionID, len(req.Files), command)
 
-	// Create a session for WebSocket tracking (must be done before enqueueing
-	// so the session exists when the worker starts sending output)
-	h.sessionMgr.Create(sessionID)
+	// Ensure session exists for WebSocket tracking
+	h.sessionMgr.GetOrCreate(sessionID)
 
 	// Enqueue the job with the user's command
 	h.pool.Enqueue(model.Job{
