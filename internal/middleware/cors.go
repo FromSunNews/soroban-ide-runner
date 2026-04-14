@@ -7,9 +7,17 @@ import "net/http"
 // communicate with the backend API.
 func CORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Allow all origins
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept, X-Session-ID, Authorization")
+
+		// Allow common methods
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE, PATCH")
+
+		// Allow headers, including Authorization for SSO
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept, X-Session-ID, Authorization, X-Requested-With, Origin")
+
+		// Cache preflight response for 12 hours
+		w.Header().Set("Access-Control-Max-Age", "43200")
 
 		// Handle preflight OPTIONS requests
 		if r.Method == http.MethodOptions {
