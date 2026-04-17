@@ -20,5 +20,6 @@ jobs:
           debug: true
           script: |
             cd ${{ secrets.DEPLOY_PATH }}
+            git config --global --add safe.directory '*'
             git pull origin main
             docker compose up -d --build
