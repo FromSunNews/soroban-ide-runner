@@ -2,7 +2,6 @@ package queue
 
 import (
 	"context"
-	"log"
 	"sync"
 
 	"soroban-studio-backend/internal/executor"

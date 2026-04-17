@@ -89,7 +89,7 @@ func main() {
 	// Wait for interrupt signal (Ctrl+C or Docker stop)
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	sig := <-quit
+	<-quit
 
 	// Give in-flight requests 30 seconds to complete
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -103,7 +103,6 @@ func main() {
 		log.Fatalf("❌ Server forced to shutdown: %v", err)
 	}
 
-	log.Println("👋 Server stopped gracefully")
 }
 
 // getEnv returns the value of an environment variable, or a default if not set.
